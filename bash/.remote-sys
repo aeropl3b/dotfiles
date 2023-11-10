@@ -1,0 +1,303 @@
+#!/bin/bash
+. ~/.function
+
+REMOTE_SYS_CONF=~/.config/remote-sys.conf
+REMOTE_SYS_CACHE=~/.cache/remote-sys/
+
+if [[ ! -d "${REMOTE_SYS_CACHE}" ]]; then
+  mkdir -p "${REMOTE_SYS_CACHE}/tunnels/"
+fi
+
+_remote_sys_completions()
+{
+  verbs="connect copy-from copy-to list ping run tunnel"
+  if [ "${#COMP_WORDS[@]}" == "1" ]; then
+    COMPREPLY=($verbs)
+  elif [ "${#COMP_WORDS[@]}" == "2" ]; then
+    local suggestion=()
+    case ${COMP_WORDS[1]} in
+        list) return;;
+        ${verbs// /|})
+          suggestion=;;
+        *)
+          for verb in $verbs; do
+            case $verb in
+              "${COMP_WORDS[1]}"*)
+                suggestion+=("$verb");;
+            esac
+          done
+          ;;
+    esac
+
+    if [ ! -z $suggestion ]; then
+      COMPREPLY=("${suggestion[@]}")
+    else
+      COMPREPLY=($(cat ${REMOTE_SYS_CONF} | awk '{print $1}'))
+    fi
+  elif [ "${#COMP_WORDS[@]}" == "3" ]; then
+     system_list="$(cat ${REMOTE_SYS_CONF} | awk '{print $1}')"
+     case ${COMP_WORDS[3]} in
+         ${system_list// /|})
+           suggestion=;;
+         *)
+           case ${COMP_WORDS[1]} in
+             copy-from)
+               if [ "${#COMP_WORDS[@]}" != "3" ]; then
+                 COMPREPLY=($(ls ${COMP_WORDS[4]}))
+                 return
+               fi;;
+             copy-to)
+               if [ "${#COMP_WORDS[@]}" != "2" ]; then
+                 COMPREPLY=($(ls ${COMP_WORDS[3]}))
+                 return
+               fi;;
+             *)
+               for sys in $system_list; do
+                 case $sys in
+                   "${COMP_WORDS[1]}"*)
+                     suggestion+=("$sys");;
+                 esac
+               done
+               ;;
+           esac
+           COMPREPLY=("${suggestion[@]}")
+           ;;
+     esac
+  fi
+}
+
+complete -F _remote_sys_completions remote-sys
+
+_parse_rs_config()
+{
+  local sargs='p:,f:'
+  local largs='passwd:,features:'
+  parsed=$(getopt --options ${sargs} --longoptions ${largs} --name "wdevcp" -- "$@")
+  if [[ $? != 0 ]]; then
+    return 1
+  fi
+  eval set -- "$parsed"
+  _rs_password_file=
+  _rs_features=
+  _rs_name=
+  _rs_user=
+  _rs_url=
+  _rs_description=
+
+  while true; do
+    case $1 in
+      --passwd|-p)
+          _rs_password_file=$2; shift 2;;
+      --features|-f)
+          _rs_features=$2; shift 2;;
+      --) shift; break;;
+      *) break;;
+    esac
+  done
+  if [ -z $4 ]; then
+    cerr "Invalide remote-sys config line"
+    return 1
+  fi
+
+  _rs_name=$1
+  _rs_user=$2
+  _rs_url=$3
+  _rs_description=$4
+
+}
+
+function sys_info()
+{
+  remote_name=$1
+  remote_user=
+  remote_pw_file=
+  remote_url=
+  while read -r system_config; do
+    eval set -- "$system_config"
+    _parse_rs_config "$@"
+    case $_rs_name in
+      *$remote_name*)
+        if [ ! -z $remote_url ]; then
+          cwarn "Ambigious remote name $1"
+          return 1
+        fi
+        remote_user=$_rs_user
+        remote_url=$_rs_url
+        remote_pw_file=$_rs_password_file
+    esac
+  done< ${REMOTE_SYS_CONF}
+  if [ -z $remote_url ]; then
+    cerr "Unknown host: $1"
+    return 1
+  fi
+}
+
+_sys_info_handler()
+{
+  if [[ -z $1 ]]; then
+    cerr "$0: No system specified"
+    return 1
+  fi
+  sys_info "$1"
+  if [[ ! $? == 0 ]]; then
+    return $?
+  fi
+}
+
+_remote_sys_tunnel()
+{
+  local sargs="hp:t:l:r:Cn:"
+  local largs="help,port:,type:,local-host:,remote-host:,close,name:"
+  local parsed=$(getopt --options ${sargs} --longoptions ${largs} --name "_remote_sys_tunnel" -- "$@")
+  if [[ $? != 0 ]]; then
+    return 1
+  fi
+  eval set -- "$parsed"
+
+  local _tunnel_name=
+  local _tunnel_close=
+  local _tunnel_type="forward"
+  local _tunnel_port=8080
+  local _tunnel_lhost="localhost"
+  local _tunnel_rhost="${remote_url}"
+
+  while true; do
+    case $1 in
+      -h|--help)
+        return 0
+        ;;
+      -p|--port)
+        _tunnel_port=$2; shift 2;;
+      -t|--type)
+        _tunnel_type=$2; shift 2;;
+      -l|--local-host)
+        _tunnel_lhost="$2"; shift 2;;
+      -r|--remote-host)
+        _tunnel_rhost="$2"; shift 2;;
+      -n|--name)
+        [ -f "${REMOTE_SYS_CACHE}/tunnels/$name" ] && cerr "Tunnel $name already exists" && return 1
+        _tunnel_name="$2"; shift 2;;
+      -C|--close|close)
+        _tunnel_close=1
+        shift
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        cerr "Unknown option to _remote_sys_tunnel $1"
+        return 1
+        ;;
+    esac
+  done
+
+  local _tunnel_cache_file=
+  [ ! -z $_tunnel_name ] && _tunnel_cache_file="${REMOTE_SYS_CACHE}/tunnels/$_tunnel_name"
+
+  if [ ! -z $_tunnel_close ]; then
+    [ -z $_tunnel_name ] && _tunnel_name=$TUNNEL_PID
+
+    _tunnel_cache_file="${REMOTE_SYS_CACHE}/tunnels/$_tunnel_name"
+    for tunnel_file in $(ls "${_tunnel_cache_file}"); do
+      if [ -f $tunnel_file ]; then
+        if [[ -d "/proc/$(cat $tunnel_file)" ]]; then
+            echo "Closing $(basename $tunnel_file)"
+            kill -9 $(cat $tunnel_file)
+        fi
+        rm "$tunnel_file"
+      else
+        cwarn "Could not find tunnel file: $tunnel_file"
+      fi
+    done
+    return 0
+  fi
+
+  if [[ ! -z $TUNNEL_PID ]]; then
+    cwarn "Tunnel is running with pid $TUNNEL_PID and TUNNEL_PID will be overwritten"
+  fi
+
+  case $_tunnel_type in
+    for*)
+      _tunnel_cmd=(ssh -N -T -L ${_tunnel_port}:${_tunnel_rhost}:${_tunnel_port} ${remote_user}@${remote_url})
+      ;;
+    rev*)
+      _tunnel_cmd=(ssh -N -T -R ${_tunnel_port}:${_tunnel_lhost}:${_tunnel_port} ${remote_user}@${_tunnel_rhost})
+      ;;
+    socat)
+      cwarn "socat tunneling is not implemented"
+      return 1
+      ;;
+    *)
+      cerr "Unknonwn tunnel type"
+      return 1
+      ;;
+  esac
+  $_tunnel_cmd[@] &
+  TUNNEL_PID=$!
+  [ -z $_tunnel_cache_file ] && _tunnel_cache_file="$REMOTE_SYS_CACHE/tunnels/$TUNNEL_PID"
+  echo $TUNNEL_PID > "$_tunnel_cache_file"
+}
+
+function remote-sys()
+{
+  local verb=${1}
+  shift
+  if [[ ! -z $1 ]]; then
+    local sys=${1//:*/}
+    local port=${1//*:/}
+    shift
+  fi
+
+  if [[ "--" == "$1" ]]; then
+    shift
+  fi
+
+  debug "Verb: $verb"
+  debug "System: $sys"
+  if [[ ! -z $port ]]; then
+    debug "Port: $port"
+  fi
+
+  exit_code=0
+  case $verb in
+    list)
+      cat ${REMOTE_SYS_CONF} | awk '{print $1}'
+      ;;
+    *)
+      _sys_info_handler $sys || return 1
+      case $verb in
+        connect)
+          ssh ${@} ${remote_user}@${remote_url}
+          exit_code=$?
+          ;;
+        ping)
+          ping ${remote_url}
+          ;;
+        tunnel)
+          _remote_sys_tunnel "$@"
+          ;;
+        copy-from)
+          if [[ -f $2 ]]; then
+            _confirm_op "Destination already exists, overwrite? (Y/n)" || return 0
+          fi
+          scp ${remote_user}@${remote_url}:$1 $2
+          ;;
+        copy-to)
+          if [[ -f $1 ]]; then
+            _confirm_op "Destination already exists, overwrite? (Y/n)" || return 0
+          fi
+          scp $1 ${remote_user}@${remote_url}:$2
+          ;;
+        run)
+          ssh -t ${remote_user}@${remote_url} $@
+          ;;
+        *)
+          cerr "Unknown verb: ${verb}"
+          return 1
+          ;;
+      esac;;
+  esac
+
+  return $exit_code
+}

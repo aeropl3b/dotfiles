@@ -1,0 +1,180 @@
+#!/bin/bash
+
+# Information from: www.OpenMP.org/mp-documents/openmp-4.5.pdf 
+# See section 4 of document for more detailed usage information 
+
+function echo_omp_env()
+{  
+   echo "OMP_SCHEDULE            = $OMP_SCHEDULE"
+   echo "OMP_NUM_THREADS         = $OMP_NUM_THREADS"
+   echo "OMP_DYNAMIC             = $OMP_DYNAMIC"
+   echo "OMP_PROC_BIND           = $OMP_PROC_BIND"
+   echo "OMP_PLACES              = $OMP_PLACES"
+   echo "OMP_NESTED              = $OMP_NESTED"
+   echo "OMP_STACKSIZE           = $OMP_STACKSIZE" 
+   echo "OMP_WAIT_POLICY         = $OMP_WAIT_POLICY" 
+   echo "OMP_MAX_ACTIVE_LEVELS   = $OMP_MAX_ACTIVE_LEVELS"
+   echo "OMP_THREAD_LIMIT        = $OMP_THREAD_LIMIT"
+   echo "OMP_CANCELLATION        = $OMP_CANCELLATION"
+   echo "OMP_DISPLAY_ENV         = $OMP_DISPLAY_ENV"
+   echo "OMP_DEFAULT_DEVICE      = $OMP_DEFAULT_DEVICE"
+   echo "OMP_MAX_TASK_PRIORITY   = $OMP_MAX_TASK_PRIORITY"
+   echo "OMP_THREAD_LIMIT        = $OMP_THREAD_LIMIT"
+
+if [[ $HOSTNAME == "cray*" ]]; then
+   echo "OMP_THREAD_STACK_SIZE   = $OMP_THREAD_STACK_SIZE"
+fi
+
+if [[ ! -z $USE_GNU_OMP ]]; then
+   echo "GOMP_CPU_AFFINITY       = $GOMP_CPU_AFFINITY"
+   echo "GOMP_DEBUG              = $GOMP_DEBUG"
+   echo "GOMP_STACKSIZE          = $GOMP_STACKSIZE"
+   echo "GOMP_SPINCOUNT          = $GOMP_SPINCOUNT"
+   echo "GOMP_RTEMS_THREAD_POOLS = $GOMP_RTEMS_THREAD_POOLS"
+fi
+}
+
+# ENV_VARIABLE: OMP_DISPLAY_ENV 
+# BRIEF: Controlls whether or not OMP environment settings are displayed at 
+#        runtime. 
+# USAGE: If true, will display `name = value` pairs. 
+#        If false, will not display anything. 
+#        If verbose, will also display vendor specific variables that modify 
+#        the functionality of other variables. 
+# VALUES: true | false | verbose 
+# DEFAULT: FALSE
+export OMP_DISPLAY_ENV=FALSE
+
+# ENV_VARIABLE: OMP_NUM_THREADS 
+# BRIEF: Sets the number of threads to use for parallel regions. 
+# VALUES: List of possitive integers
+# DEFAULT: Number threads found on system
+export OMP_NUM_THREADS=4
+
+# ENV_VARIABLE: OMP_SCHEDULE 
+# BRIEF: Controls the schedule type and optionally the chuck size of all 
+#        loop directives that have the schedule type `runtime` 
+# USAGE: type[,chunk] 
+# VALUES: "static" | "dynamic" | "guided" | "auto" [, positive integer] 
+# DEFAULT: "static"
+export OMP_SCHEDULE="guided" 
+
+# ENV_VARIABLE: OMP_DYNAMIC 
+# BRIEF: Controls dynamic adjustment of the number of threads used in parallel 
+#        regions. 
+# USAGE: If true, OpenMP implementation will adjust the number of the 
+#        number of threads to optimize the use of system resources. 
+#        If false, OpenMP implementation will not dynamically adjust threads. 
+# VALUES: true | false
+# DEFAULT: FALSE
+export OMP_DYNAMIC=TRUE 
+
+# ENV_VARIABLE: OMP_PROC_BIND 
+# BRIEF: Sets the thread affinity policy to be used for parallel regions at 
+#        the corresponding nested level. 
+# USAGE: If false, thread affinity is disabled and proc_bind clauses on 
+#        parallel constructs are ignored. 
+# VALUES: true | false or master | close | spread 
+# DEFAULT: FALSE unless OMP_PLACES (or GOMP_CPU_AFFINITY on GNU systems) is set
+export OMP_PROC_BIND=FALSE 
+
+# ENV_VARIABLE: OMP_MAX_ACTIVE_LEVELS 
+# BRIEF: Limits the number of threads that may be executed simultaneously
+# USAGE: Initial value for maximum number of nested parallel regions
+# VALUES: Positive integer 
+# DEFAULT: no limit
+# export OMP_MAX_ACTIVE_LEVELS=10000000000
+
+# ENV_VARIABLE: OMP_PLACES 
+# BRIEF: See Documentation 
+# USAGE: Advanced tuning
+# VALUES: Varies significantly by system
+# DEFAULT: unset
+#export OMP_PLACES 
+
+# ENV_VARIABLE: OMP_NESTED 
+# BRIEF: Controls nested parallelism 
+# USAGE: If true, nested parallelism is enabled 
+#        If false, nested parallelism is disabled 
+# VALUES: true | false 
+# DEFAULT: OMP_NESTED=FALSE
+export OMP_NESTED=FALSE
+
+# ENV_VARIABLE: OMP_STACKSIZE 
+# BRIEF: Controls size of stack threads created by OpenMP 
+# USAGE: size[B,K,M,G] where 
+#            B - bytes, 
+#            K - Kilobytes, 
+#            M - Megabytes, 
+#            G - Gigabytes 
+# VALUES: size is a positive integer
+# DEFAULT: (system dependent)
+#export OMP_STACKSIZE=16M 
+
+# ENV_VARIABLE: OMP_WAIT_POLICY 
+# BRIEF: Sets the wait policy to be used (not honored by some implementations) 
+# USAGE: If active, will spin waiting threads 
+#        If passive, will sleep or make available to other threads waiting 
+#        processor. 
+# VALUES: ACTIVE | PASSIVE 
+# DEFAULT: ACTIVE then PASSIVE after a short time (ambiguos)
+export OMP_WAIT_POLICY=ACTIVE 
+
+# ENV_VARIABLE: OMP_THREAD_LIMIT 
+# BRIEF: Sets the maximum number of threads to use in a contention group. 
+# USAGE: If the value is greater than the implementation can support then it 
+#        will default to the implementation value. 
+# VALUES: possitive integer 
+# DEFAULT: unlimited
+#export OMP_THREAD_LIMIT=8
+
+# ENV_VARIABLE: OMP_CANCELLATION 
+# BRIEF: Effects that cancel construct 
+# USAGE: If true, cancellation is activated. 
+#        If false, cancellation is disabled. 
+# VALUES: true | false 
+# DEFAULT: FALSE
+export OMP_CANCELLATION=FALSE
+
+# ENV_VARIABLE: OMP_DEFAULT_DEVICE 
+# BRIEF: Sets the device number ot use in the device constructs 
+# USAGE: 
+# VALUES: non-negative integer values. 
+# DEFAULT: 0 if unset, host if not found 
+#export OMP_DEFAULT_DEVICE=0
+
+# ENV_VARIABLE: OMP_MAX_TASK_PRIORITY 
+# BRIEF: Initial value of task priority that can be set for a task. 
+# USAGE: 
+# VALUES: Non-negative integer
+# DEFAULT: 0
+export OMP_MAX_TASK_PRIORITY=0
+
+# ENV_VARIABLE: OMP_THREAD_LIMIT 
+# BRIEF: Set thread limit 
+# USAGE: 
+# VALUES: Non-negative integer
+if [[ $HOSTNAME == "cray*" ]]; then
+   export OMP_THREAD_LIMIT=48
+else
+   export OMP_THREAD_LIMIT=20
+fi
+
+if [[ $HOSTNAME == "cray*" ]]; then
+   echo "CRAY DETECTED"
+   # ENV_VARIABLE: OMP_THREAD_STACK_SIZE
+   # BRIEF: Cray specific environment variable
+   # USAGE: number of bytes 
+   # VALUES: Non-negative integer
+   # DEFAULT: 16000000 (16MB)
+   export OMP_THREAD_STACK_SIZE=16000000
+fi
+
+if [[ ! -z $USE_GNU_OMP ]]; then
+   echo "USE_GNU_OMP ON"
+   # export GOMP_CPU_AFFINITY
+   # export GOMP_DEBUG
+   # export GOMP_STACKSIZE
+   # export GOMP_SPINCOUNT
+   # export GOMP_RTEMS_THREAD_POOLS
+fi

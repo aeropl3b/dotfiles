@@ -1,0 +1,10 @@
+{
+    "term": "urxvt",
+    "history": "{$HOME}/.cache/i3/i3-quickterm.order",
+    "ratio": 0.75,
+    "pos": "top",
+    "shells": {
+        "python": "python3",
+        "shell": "{$SHELL}"
+    }
+}

@@ -1,0 +1,69 @@
+############################################################################################
+# Path tools
+function clean-path() {
+   local sep=":"
+   if [[ ! -z $2 ]]; then
+      sep="$2"
+   fi
+   if [[ ! -z $(eval "echo \$$1") ]]; then
+      local res=$(echo $(eval "echo \$$1") | sed "s,${sep}\+,${sep},g" | sed "s,${sep}$,,g" | sed "s,^${sep},,g")
+      local ret=$?
+      if [[ $ret ]]; then
+         export $1=$res
+      fi
+   #else
+      #echo "Variable $(eval "echo \$$1") is empty"
+   fi
+}
+
+function deduce-path() {
+   local xpath=$PWD
+   if [[ ! -z $1 ]] ; then
+      if [[ ! -d  $1 ]]; then
+         echo "error: deduce-path: path not found $1"
+         return 1
+      fi
+      xpath=$1
+   fi
+   xpath=$(realpath $xpath)
+   echo $xpath
+}
+
+function remove-path() {
+   local sep=":"
+   if [[ ! -z $3 ]]; then
+      sep="$3"
+   fi
+   local xpath=$(deduce-path $2)
+   local res=$(echo $(eval "echo \$$1") | sed "s,${sep}${xpath}${sep},:,g" | sed "s,^${xpath}${sep},,g" | sed "s,${sep}${xpath}$,,g")
+   if [[ $? ]]; then
+      export $1=$res
+   fi
+   clean-path $1 $sep
+}
+
+function append-path() {
+   local sep=":"
+   if [[ ! -z $3 ]]; then
+      sep="$3"
+   fi
+   local xpath=$(deduce-path $2)
+   remove-path $1 $xpath $sep
+   export $1=$(eval "echo \$$1"):$xpath
+   clean-path $1 $sep
+}
+
+function prepend-path() {
+   local sep=":"
+   if [[ ! -z $3 ]]; then
+      sep="$3"
+   fi
+   local xpath=$(deduce-path $2)
+   remove-path $1 $xpath $sep
+   export $1=$xpath:$(eval "echo \$$1")
+   clean-path $1 $sep
+}
+
+function mkcd() {
+  mkdir -p $1 && cd $1
+}

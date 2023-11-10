@@ -1,0 +1,61 @@
+# Module aliases
+alias ml='module list'
+alias mld='module load'
+#alias mpurge='source ~/.mpurge'
+alias mod='module'
+alias ms='module show'
+
+alias grepx='grep --color=auto --exclude-dir={build,Release,Debug,RELEASE,DEBUG,.git} --exclude=*tags*'
+
+alias vi='vim'
+alias vgfull='valgrind --log-file=val.log --leak-check=full --show-leak-kinds=all'
+alias vg='valgrind --log-file=val%p.log'
+alias grep='grep --color=auto'
+# commands
+alias squ='squeue -u $USER -o "%.6i %.9u %.40j %.30R %.6D %.12T %.12M"'
+alias swatch='watch squeue -u rkratt -o \"%.6i %.9u %.24j %.22R %.6D %.12T %.12M\"'
+alias run='sbatch run.sbatch'
+alias makej='make -j 20'
+alias mpirun1='mpirunn 1'
+alias mpirun2='mpirunn 2'
+alias mpirun3='mpirunn 3'
+alias mpirun4='mpirunn 4'
+
+alias hog='ps -e -o pcpu,cpu,nice,state,cputime'
+alias vi='vim'
+alias cmaken='cmake -G Ninja'
+
+alias ggrep="grep -n --color=always"
+alias ls='ls --color=auto'
+
+alias gdt='git difftool'
+alias gitlog='git log --pretty="%Cgreen %H %Creset %ad %d %s" --decorate=full --date=short'
+alias gdno='git diff --name-only'
+
+# Kitware Systems
+alias kw_rigel='sshpass -f ~/.private/.ldap_pwd ssh ryan.krattiger@rigel.kitware.com'
+alias kw_faz='ssh khq\\user.name@faz'
+
+# OLCF
+alias ornl_crusher='ssh rkratt@crusher.olcf.ornl.gov'
+alias ornl_spock='ssh rkratt@spock.olcf.ornl.gov'
+alias ornl_summit='ssh rkratt@summit.olcf.ornl.gov'
+alias ornl_dtn='ssh rkratt@dtn.ccs.ornl.gov'
+alias ornl_home='ssh rkratt@home.ccs.ornl.gov'
+
+# NERSC Systems
+alias nersc_cori='ssh rkratt@cori.nersc.gov'
+alias nersc_perlmutter='ssh rkratt@perlmutter-p1.nersc.gov'
+
+# ANL Systems
+
+alias qemu='qemu-system-x86_64'
+alias vbh='vboxheadless --startvm'
+alias startWin10='vboxheadless --startvm Windows10'
+alias vbm="vboxmanage"
+
+if [[ "$SHELL" == "zsh" ]]; then
+  alias find='noglob find'
+fi
+
+alias note='todo.sh -d ~/.notes/config'

@@ -1,0 +1,726 @@
+export DEFAULT_WORK_DIR=pwork
+export RK_CMAKE_GENERATOR="-G Ninja"
+#export RK_CMAKE_GENERATOR="\"Unix Makefiles\""
+export RK_BUILD_TOOL=ninja
+export RK_DEBUG_MODE=
+
+function toggle_debug()
+{
+  if [[ -z $RK_DEBUG_MODE ]]; then
+    echo "-- Debug Enabled --"
+    RK_DEBUG_MODE=1
+  else
+    echo "-- Debug Disabled --"
+    RK_DEBUG_MODE=
+  fi
+  export RK_DEBUG_MODE
+}
+
+function pushd_silent() {
+   pushd $1 &> /dev/null
+}
+
+function popd_silent() {
+   popd $1 &> /dev/null
+}
+
+function popds() {
+   local D=($(dirs))
+   local ndir=${#D[@]}
+   local end=1
+   if [ ! -z $1 ] && [ $1 -lt $ndir ]; then
+      end=$(expr $ndir - $1)
+   fi
+   while [[ $ndir -gt $end ]]; do
+      popd_silent
+      ndir=$((--ndir))
+   done
+}
+
+function title() {
+   echo -en "\033]2;$@\007";
+}
+
+function pwd_strip() {
+   local curr_dir="${PWD##*/}"
+   local prefix="Dir -  "
+        local TMP=""
+   case $PWD in
+      *converge-30*) prefix="3.0 - ";;
+      *converge-24*) prefix="2.4 - ";;
+      *converge-23*) prefix="2.3 - ";;
+   esac
+
+   case $PWD in
+      */tests*) prefix="Test ${MPI_TYPE} ${prefix}";;
+      */src*)  TMP=${PWD##*src}; TMP=${TMP%%\/*}; prefix="Source ${TMP} - ${prefix}";;
+      */builds*) prefix="Build ${MPI_TYPE} ${prefix}";;
+   esac
+
+        TMP=${PWD##*ticket_}
+   TMP=${TMP%%/ticket_*}
+
+   case $PWD in
+      */ticket_*)       prefix="${prefix} ${TMP}";;
+   esac
+
+   case $PWD in
+                /home/rkratt*) prefix="${prefix} Local";;
+      *pwork*)      prefix="${prefix} P-Work";;
+      *work2*)      prefix="${prefix} Work2";;
+      *work3*)      prefix="${prefix} Work3";;
+      *qa-work*)    prefix="${prefix} QA-Work";;
+      *work*)       prefix="${prefix} Work";;
+      /usr/people*) prefix="${prefix} UsrPeople";;
+   esac
+
+   if [[ $PWD == $HOME ]]; then
+      prefix="Home - "
+   fi
+   local ttttttttt="${prefix} ${curr_dir}"
+
+   echo -en "${ttttttttt}"
+}
+
+function set_title() {
+   title `pwd_strip`;
+}
+
+function debug() {
+   if [[ -z $RK_DEBUG_MODE ]]; then
+      return
+   fi
+   echo $@
+}
+
+function git_lines() {
+   if [[ ! -z $1 ]]; then
+      u=$1
+   else
+      u=$USER
+   fi
+   git log --author="$u" --pretty=tformat: --numstat | gawk '{ add += $1; subs += $2; loc += $1 - $2 } END { printf "added lines: %s removed lines: %s total lines: %s\n", add, subs, loc }'
+}
+
+function wait_for() {
+   while [[ true ]];do
+      $1
+      if [[ $? == 0 ]]; then
+         break;
+      fi
+      sleep 1;
+   done
+}
+
+function run_conditional() {
+   echo "Executing: $@"
+   while true; do
+      read -p "Are you sure you want to continue? (yes/no)" res
+      case $res in
+         no) return 1;;
+      yes) "$@" ; break;;
+         *) echo "You must type yes or no";;
+      esac
+   done
+}
+
+function run_echo() {
+   echo "$@"
+   eval -- "$@"
+   run_pid=$!
+   return $?
+}
+
+function run_logger() {
+  local log_name=${1}
+  eval -- "$@" |& tee log.${log_name}
+  run_pid=$!
+}
+
+function run_quiet() {
+  eval -- "$@" &> /dev/null
+  run_pid=$!
+}
+
+function run_ignore_errors() {
+  $@ 2> /dev/null
+  run_pid=$!
+}
+
+function run_backgroundq() {
+   nohup run_quiet "$@" &
+}
+
+function run_background() {
+   nohup eval -- "$@" &
+   run_pid=$!
+}
+
+function run_remote() {
+   remote=$1;
+   shift
+   ssh -t $1 "cd $PWD; $@"
+   run_pid=$!
+}
+
+function is_running()
+{
+  [ -d "/proc/$1" ] && return 1 || return 0
+}
+
+function cwarn() {
+  echo "Warning: $@" 1>&2
+}
+
+function cerr() {
+  echo "Error: $@" 1>&2
+}
+
+function rm_rf() {
+  run_conditional rm -rf $1
+}
+
+function showVisibleFilesOnly() {
+  ls -p | grep -v /
+}
+
+function showVisibleFoldersOnly() {
+  ls -p | grep / | grep "^."
+}
+
+function showOnlyFilesIncludingHidden() {
+  ls -Ap | grep -v / | grep "^."
+}
+function showOnlyFoldersIncludingHidden() {
+  ls -Ap | grep / | grep "^."
+}
+
+function showHiddenFoldersOnly() {
+  ls -Ap | grep / | grep "^\." | grep "\."
+}
+function showHiddenFilesOnly() {
+  ls -Ap | grep -v / | grep "^\." | grep "\."
+}
+
+function showAllFilesAndFoldersIncludingHidden() {
+  ls -Ap
+}
+
+function showHiddenFilesAndFoldersOnly() {
+  ls -Ap | grep "^\."
+}
+
+function threads() {
+   local avail_cpu=
+   if [[ -f "/proc/cpuinfo" ]]; then
+      avail_cpu=$(grep -c ^processor /proc/cpuinfo)
+   fi
+   echo "Available Threads: ${avail_cpu}"
+   if [[ ! -z $1 ]]; then
+      case $1 in
+         [[:digit:]]*)
+           if [ $1 -gt 0 ]; then
+             if [ ! -z $avail_cpu ]; then
+               if [ $1 -le $avail_cpu ] || [ $allow_oversubscribe ]; then
+                 export OMP_NUM_THREADS=$1;
+               else
+                 echo "ERROR: Cannot set OpenMP threads > available threads"
+                 return 1
+               fi
+             else
+               echo "WARNING: Setting OpenMP threads but may be oversubscriped"
+               export OMP_NUM_THREADS=$1
+             fi
+           else
+             echo "WARNING: $1 threads asked for but is not in valid range [0-$avail_cpu]"
+           fi
+           ;;
+         *) echo "WARNING: Invalid argument to threads ($1)";;
+      esac
+   else
+      export OMP_NUM_THREADS=${avail_cpu}
+   fi
+   echo "OpenMP set to use: ${OMP_NUM_THREADS}"
+}
+
+_confirm_op()
+{
+  local prompt="Proceed? (Y/n): "
+  if [[ ! -z $1 ]]; then
+    prompt="$1"
+  fi
+
+  read -r -p ${prompt} _op
+
+  local tries=0
+  while [ $tries -lt 5 ]; do
+    case $_op in
+      [Yy]*) return 0;;
+      [Nn]*) return 1;;
+      *) echo "Invalid option (Y|n)"
+    esac
+    tries=$((tries+1))
+  done
+}
+
+function reload() {
+   if [[ -z $1 ]]; then
+      source ~/.bashrc
+   else
+      case $1 in
+         *omp*) source ~/.omp_env;;
+         *ali*) source ~/.aliases;;
+         *fun*) source ~/.function;;
+         *) source ~/.bashrc;;
+      esac
+   fi
+}
+
+function append_ld_path() {
+   append-path LD_LIBRARY_PATH $1
+}
+
+function prepend_ld_path() {
+   prepend-path LD_LIBRARY_PATH $1
+}
+
+function repl() { printf "$1"'%.0s' $(eval "echo {1.."$(($2))"}"); }
+
+function toggle_env() {
+  local toggle_on=
+  if [ ${#} -eq 2 ]; then
+    case $2 in
+      1|true|True|TRUE|on|ON)
+        local toggle_on=1;;
+      0|false|False|FALSE|off|OFF)
+        local toggle_on=0;;
+      *) ;;
+    esac
+  fi
+
+  if [ ! -z $toggle_on ]; then
+    export ${1}=${toggle_on}
+  else
+    if [ -z ${!1} ] || [ ${!1} == 0 ]; then
+      export ${1}=1
+    else
+      export ${1}=0
+    fi
+  fi
+  echo "Set $1 to ${!1}"
+}
+
+function loading_bar() {
+   progress=$1
+   total=$2
+   bar_length=$3
+
+   toks=($4)
+   otoken=${toks[0]}
+   ptoken=${toks[1]}
+   ctoken=${toks[2]}
+
+   percent=$(echo "$progress*100/$total" | bc)
+   bar_prog=$(echo "$bar_length*$percent/100" | bc)
+   prog=$(repl ${ptoken} $bar_prog)
+
+   printf "\r%s%-${bar_length}s%s (%3s%%)" ${otoken} ${prog} ${ctoken} ${percent}
+}
+
+function cpwin {
+   local sargs='h?v:R:L:p:r'
+   local largs='help,visual-studio:,remote-path:,local-path:,password-file:,recursive'
+   parsed=$(getopt --options ${sargs} --longoptions ${largs} --name "wdevcp" -- "$@")
+   if [[ $? != 0 ]]; then
+     return 1
+   fi
+   echo "$parsed"
+   eval set -- "$parsed"
+   local lpath=.
+   local vs_version=2019
+   local pwdfile="/home/rkratt/.private/.winpass"
+   while true; do
+      case $1 in
+         -h|-\?|--help)
+            echo "wdevcp:"
+            echo "   -h/-?/--help-studio"
+            echo "   -v/--visual-studio"
+            echo "   -r/--remote-path"
+            echo "   -l/--local-path"
+            echo "   -p/--password-file"
+            return 0
+            ;;
+         -v|--visual-studio)
+            vs_version=$2
+            shift 2
+            ;;
+         -R|--remote-path)
+            local rpath=$2
+            shift 2
+            ;;
+         -L|--local-path)
+            lpath=$2
+            shift 2
+            ;;
+         -r|--recursive)
+            local recursive=-r
+            shift 2
+            ;;
+         --) shift; break;;
+         *) echo "ERROR: Inconsistent arguments"; return 1;;
+      esac
+   done
+
+   if [[ -z $rpath ]]; then
+      echo "Missing remote-path"
+      return 1
+   fi
+   if [ ! -d $lpath ] && [ ! -f $lpath ]; then
+      echo "Local path does not exist create it?"
+      run_conditional mkdir -p $lpath
+      if [[ ! $? -eq 0 ]]; then
+         return 1
+      fi
+   fi
+
+   if [[ ! -f $pwdfile ]]; then
+      echo "Invalid password file detected: $pwdfile"
+      return 1
+   fi
+
+   if [[ ! -z $1 ]]; then
+      case $1 in
+         send)
+            send_path=$lpath
+            recv_path=dev-buildwin-vs$vs_version:$rpath
+            ;;
+         recv)
+            recv_path=$lpath
+            send_path=dev-buildwin-vs$vs_version:$rpath
+            ;;
+         *) echo "Unknown option $1"; return 1;;
+      esac
+   fi
+
+   exe_print sshpass -f $pwdfile scp $recursive $send_path $recv_path
+   return $?
+}
+
+function git_resolve() {
+   vim $1
+   run_conditional git add $1
+}
+
+function grep_edit() {
+   for f in $(grepx -Rl "$1"); do run_conditional vim $f; done
+}
+
+# Time formats
+# SS
+# MM:SS
+# HH:MM:SS
+# D-HH:MM:SS
+# HHh
+# MMm
+# SSs
+function parse_time_to_seconds() {
+   local seconds=0
+   case $1 in
+      [[:digit:]]*h)
+         seconds=${1//h/}
+         let "seconds = $seconds * 3600"
+         ;;
+      [[:digit:]]*m)
+         seconds=${1//m/}
+         let "seconds = $seconds * 60"
+         ;;
+      [[:digit:]]*s)
+         seconds=${1//s/}
+         ;;
+      [[:digit:]]*-[[:digit:]]*:[[:digit:]]*:[[:digit:]]*)
+         local days=${1//-*/}
+         local tmp=${1//*-/}
+         tmp=(${tmp//:/ })
+         local hrs=${tmp[0]}
+         local mins=${tmp[1]}
+         local secs=${tmp[2]}
+         let "seconds = $days * 24 * 3600 + $hrs * 3600 + $mins * 60 + $secs"
+         ;;
+      [[:digit:]]*:[[:digit:]]*:[[:digit:]]*)
+         local tmp=(${1//:/ })
+         local hrs=${tmp[0]}
+         local mins=${tmp[1]}
+         local secs=${tmp[2]}
+         let "seconds = $hrs * 3600 + $mins * 60 + $secs"
+         ;;
+      [[:digit:]]*:[[:digit:]]*)
+         local tmp=(${1//:/ })
+         local mins=${tmp[0]}
+         local secs=${tmp[1]}
+         let "seconds = $mins * 60 + $secs"
+         ;;
+      [[:digit:]]*)
+         seconds=$1
+         ;;
+      *)
+         echo "ERROR: Unrecognized format"
+   esac
+   echo $seconds
+}
+
+function sleep_and_ex() {
+   sleep $1
+   shift
+   debug "$@"
+   "$@"
+}
+
+function schedule_ex() {
+   local sargs='h?w:t:c:'
+   local largs='help,wait:,time:,command:'
+   parsed=$(getopt --options ${sargs} --longoptions ${largs} --name ${FUNCNAME[0]} -- "$@")
+   if [[ $? != 0 ]]; then
+     return 1
+   fi
+   eval set -- "$parsed"
+
+   local sleep_seconds=0
+   while true; do
+      case $1 in
+         -t|--time)
+            sleep_seconds=$(date --date="$2" +%s)
+            local tmp_now=$(date --date='now' +%s)
+            let "sleep_seconds = $sleep_seconds - $tmp_now"
+            shift 2;;
+         -w|--wait)
+            sleep_seconds=$(parse_time_to_seconds $2)
+            shift 2;;
+         --) shift; break;;
+         *)
+            echo "ERROR: Unrecognized argument: $1"
+            return 1;;
+      esac
+   done
+
+   if [[ -z $@ ]]; then
+      echo "No command passed to ${FUNCNAME[0]}"
+   fi
+
+   echo $sleep_seconds
+   echo "$@"
+   exbg_cli sleep_and_ex $sleep_seconds "$@"
+}
+
+function extract() {
+  local sargs='C:f:'
+  local largs='chdir:,file:'
+  parsed=$(getopt --options ${sargs} --longoptions ${largs} --name "extract" -- "$@")
+
+  if [[ $? != 0 ]]; then
+    return 1
+  fi
+
+  eval set -- "$parsed"
+  extract_dir=$PWD
+  file=
+  while true; do
+    case $1 in
+      --chdir|-C)
+          extract_dir=$2
+          if [ ! -d $extract_dir ]; then
+            mkdir -p $extract_dir
+          fi
+          extract_dir=$(realpath $extract_dir)
+          shift 2
+        ;;
+      --file|-f)
+          file=$2
+          shift 2
+        ;;
+      --)
+          shift
+          break
+        ;;
+      *)
+         echo "Error: Unrecognized argument $1"
+         return 1
+    esac
+  done
+  if [ -z $file ]; then
+    if [ -f $1 ]; then
+      file=$1
+    else
+      cerr "ERROR: No file to extract"
+      return 1
+    fi
+  fi
+  file=$(realpath $file)
+  echo -n "Extracting ${file} "
+  if [[ $extract_dir == $PWD ]]; then
+     echo "to ."
+  else
+     echo "to $extract_dir"
+  fi
+
+
+  local extract_command=
+  local extract_opts=
+  case $file in
+    *\.spack)
+      extract_command="tar"
+      extract_opts="-xzf"
+      ;;
+    *\.tar\.gz*)
+      extract_command="tar"
+      extract_opts="-xzf"
+      ;;
+    *\.tar\.bz*)
+      extract_command="tar"
+      extract_opts="-xJf"
+      ;;
+    *\.zip)
+      extract_command="unzip"
+      ;;
+    *)
+      cerr "ERROR: Cannot detect extract format"
+      return 1
+  esac
+  pushd_silent $extract_dir
+  #extract_command="$extract_command $file"
+  $extract_command $extract_opts $file
+  popd_silent
+}
+
+function parse_version() {
+  if [ -z ${1} ]; then
+    exit 1
+  fi
+  version=$1
+
+  if [ -z ${2} ]; then
+    prefix=VERSION
+  else
+    prefix=$2
+  fi
+
+  eval set -- MAJOR MINOR PATCH PATCH_EXTRA --
+  for vcomp in ${version//\./ }; do
+    export ${prefix}_${1}=${vcomp}
+    shift
+  done
+}
+
+function parse_version_env() {
+  parse_version ${!1} ${1}
+}
+
+export superbuild_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/superbuild
+export smtk_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/superbuild
+export cmb_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/cmb
+export xms_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/plugins/meshers/xms
+export cmb2d_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/plugins/simulations/minimalfem
+export truchas_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/plugins/simulations/truchas
+export ace3p_PROJECT_ROOT=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/plugins/simulations/ace3p
+
+function cdr() {
+  echo "Not done"
+}
+
+export RK_SMTK_VERSION=21.10.0
+
+function cmake_smtk_dev()
+{
+  config=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/superbuild/build/smtk-dev/smtk-developer-config.cmake
+  smtkdir=/home/local/KHQ/ryan.krattiger/Projects/modelbuilder/smtk/src/dev/build/lib/cmake/smtk-${RK_SMTK_VERSION}
+  cmake -C ${config} -Dsmtk_DIR:PATH=${smtkdir} $@
+}
+
+
+function kitware_systems()
+{
+  _systems=(
+    # MacOS
+    ("bleedingapple" "x86_64" "ci" "macos")
+    ("donizetti" "x86_64" "ci" "macos")
+    ("dragnipur" "x86_64" "ci" "macos")
+    ("dres" "x86_64" "ci" "macos")
+    ("ilum" "aarch64-m1" "ci" "macos")
+    ("kerbol" "x86_64" "ci" "macos")
+    ("merbel" "x86_64" "ci" "macos")
+    ("moonshade" "x86_64" "ci" "macos")
+    ("norkit" "x86_64" "ci" "macos")
+    ("tattooine" "x86_64" "ci" "macos")
+    ("trey" "x86_64" "ci" "macos")
+    ("tunja" "x86_64" "ci" "macos")
+    ("novigrad" "x86_64" "dev" "macos")
+    # Linux
+    ("abeth" "x86_64" "ci" "linux")
+    ("akreos" "x86_64" "ci" "linux")
+    ("arevalo" "x86_64" "ci" "linux")
+    ("arrow" "aarch64" "ci" "linux")
+    ("ballista" "aarch64" "ci" "linux")
+    ("dejagore" "x86_64" "ci" "linux")
+    ("dovim" "x86_64" "ci" "linux")
+    ("eeloo" "x86_64" "ci" "linux")
+    ("fade" "x86_64" "ci" "linux")
+    ("forge" "x86_64" "ci" "linux")
+    ("harvest" "x86_64" "ci" "linux")
+    ("jool" "x86_64" "ci" "linux")
+    ("laythe" "x86_64" "ci" "linux")
+    ("minmus" "x86_64" "ci" "linux")
+    ("minoc" "x86_64" "ci" "linux")
+    ("moho" "x86_64" "ci" "linux")
+    ("omist" "x86_64" "ci" "linux")
+    ("renar" "x86_64" "ci" "linux")
+    ("rukbat" "x86_64" "ci" "linux")
+    ("vall" "x86_64" "ci" "linux")
+    ("venal" "x86_64" "ci" "linux")
+    # Windows
+    ("abadan" "x86_64" "ci" "win64")
+    ("bop" "x86_64" "ci" "win64")
+    ("ceox" "x86_64" "ci" "win64")
+    ("dash3win10" "x86_64" "ci" "win64")
+    ("gantha" "x86_64" "ci" "win64")
+    ("gilly" "x86_64" "ci" "win64")
+    ("hera" "x86_64" "ci" "win64")
+    ("imstk_ci" "x86_64" "ci" "win64")
+    ("kerbin" "x86_64" "ci" "win64")
+    ("mun" "x86_64" "ci" "win64")
+    ("nemesis" "x86_64" "ci" "win64")
+    ("niska" "x86_64" "ci" "win64")
+    ("pol" "x86_64" "ci" "win64")
+    ("tenal" "x86_64" "ci" "win64")
+    ("terfin" "x86_64" "ci" "win64")
+    ("tylo" "x86_64" "ci" "win64")
+    ("umbra" "x86_64" "ci" "win64")
+    ("faz" "x86_64" "dev" "win64")
+  )
+
+  declare -A field_index=(
+    [name]=0
+    [arch]=1
+    [use]=2
+    [os]=3
+  )
+
+  for sys in "${_systems[@]}"
+  do
+    echo "${sys[@]}"
+    #echo ${sys[${field_index[name]}]}
+    #echo ${sys[${field_index[arch]}]}
+    #echo ${sys[${field_index[use]}]}
+    #echo ${sys[${field_index[os]}]}
+  done
+}
+
+function cachedir()
+{
+  if [[ -d $1 ]]; then
+    echo "Signature: 8a477f597d28d172789f06886806bc55" > $1/CACHEDIR.TAG
+  fi
+}
+
+setup_remotesys()
+{
+  source ~/.remote_sys
+}
